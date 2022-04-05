@@ -74,7 +74,7 @@ parser.add_argument('--no_batch_norm', action='store_true',
                     help='Turn off batch normalization')
 
 parser.add_argument('--meta_model', type=str, default='warp_leap',
-                    help='Meta-learner [warp_leap, leap, reptile,'
+                    help='Meta-learner [warp_leap, warp_leap_fixed, leap, reptile,'
                          'maml, fomaml, ft, no]')
 parser.add_argument('--inner_opt', type=str, default='sgd',
                     help='Optimizer in inner (task) loop: SGD or Adam')
