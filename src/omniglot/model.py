@@ -484,3 +484,167 @@ class WarpedOmniConv(nn.Module):
         for m in self.modules():
             if hasattr(m, 'reset_running_stats'):
                 m.reset_running_stats()
+                
+             
+class WarpedOmniConv_fixed(nn.Module):
+
+    """ConvNet classifier.
+
+    Same as the OmniConv except for additional warp-layers.
+
+    Arguments:
+        num_classes (int): number of classes to predict in each alphabet
+        num_layers (int): number of convolutional layers (default=4).
+        kernel_size (int): kernel size in each convolution (default=3).
+        num_filters (int): number of output filters in each convolution
+            (default=64)
+        imsize (tuple): tuple of image height and width dimension.
+        padding (bool, int, tuple): padding argument to convolution layers
+            (default=True).
+        batch_norm (bool): use batch normalization in each convolution layer
+            (default=True).
+        multi_head (bool): multi-headed training (default=False).
+        warp_num_layers (int): number of warp-layers per adaptable conv block
+            (default=1).
+        warp_num_filters number of output filters internally in warp-layers,
+            if `warp_num_lavers>1`. Final number of output filters of
+            warp-layers are always same as number of input filters
+            (default=64).
+        warp_residual_connection (bool): use residual connection in
+            warp-layers (default=False).
+        warp_act_fun (str): activation function in warp-layers (optional).
+        warp_batch_norm (bool): activation function in warp-layer.
+        warp_final_head (bool): add a warp-layer to final output of model.
+    """
+
+    def __init__(self,
+                 num_classes,
+                 num_layers=4,
+                 kernel_size=3,
+                 num_filters=64,
+                 imsize=(28, 28),
+                 padding=True,
+                 batch_norm=True,
+                 multi_head=False,
+                 warp_num_layers=1,
+                 warp_num_filters=64,
+                 warp_residual_connection=False,
+                 warp_act_fun=None,
+                 warp_batch_norm=True,
+                 warp_final_head=False):
+        super(WarpedOmniConv, self).__init__()
+        self.num_layers = num_layers
+        self.kernel_size = kernel_size
+        self.num_filters = num_filters
+        self.imsize = imsize
+        self.batch_norm = batch_norm
+        self.multi_head = multi_head
+        self.warp_num_layers = warp_num_layers
+        self.warp_num_filters = warp_num_filters
+        self.warp_residual_connection = warp_residual_connection
+        self.warp_act_fun = ACT_FUNS[warp_act_fun.lower()]
+        self.warp_batch_norm = warp_batch_norm
+        self.warp_final_head = warp_final_head
+        self._conv_counter = 0
+        self._warp_counter = 0
+
+        def conv_block(nin):
+            # Task adaptable conv block, same as OmniConv
+            _block = [nn.Conv2d(nin,
+                                num_filters,
+                                kernel_size,
+                                padding=padding),
+                      nn.MaxPool2d(2)]
+            if batch_norm:
+                _block.append(nn.BatchNorm2d(num_filters))
+            _block.append(nn.ReLU())
+            return nn.Sequential(*_block)
+
+        def warp_layer(nin, nout):
+            # We use same kernel_size and padding as OmniConv for simplicity
+            return WarpLayer(nin, nout, kernel_size, padding,
+                             self.warp_residual_connection,
+                             self.warp_batch_norm,
+                             self.warp_act_fun)
+
+        fix_warp = warp_layer(num_filters, num_filters)
+
+        def block(nin):
+            # Main block, wraps warp_layers around a conv_block.
+
+            # Task-adaptable layer
+            self._conv_counter += 1
+            setattr(self, 'conv{}'.format(self._conv_counter), conv_block(nin))
+
+            # Warp-layers
+            nin = num_filters
+            for _ in range(self.warp_num_layers):
+                self._warp_counter = \
+                    self._warp_counter % self.warp_num_layers + 1
+
+                if self._warp_counter == self.warp_num_layers:
+                    nout = num_filters
+                else:
+                    nout = self.warp_num_filters
+
+                setattr(self, 'warp{}{}'.format(self._conv_counter,
+                                                self._warp_counter),
+                        fix_warp)
+
+                nin = nout
+
+        # Build model
+        block(1)
+        for _ in range(self.num_layers-1):
+            block(num_filters)
+
+        if self.warp_final_head:
+            self.head = Linear(self.multi_head, num_filters, num_filters)
+            self.warp_head = nn.Linear(num_filters, num_classes)
+        else:
+            self.head = Linear(self.multi_head, num_filters, num_classes)
+
+        self.squeeze = Squeeze()
+
+    def forward(self, x, idx=None):
+        """Forward-pass through model."""
+        for i in range(1, self._conv_counter+1):
+            # Task-adaptable layer
+            x = getattr(self, 'conv{}'.format(i))(x)
+            # Warp-layer(s)
+            for j in range(1, self._warp_counter+1):
+                x = getattr(self, 'warp{}{}'.format(i, j))(x)
+
+        x = self.squeeze(x)
+        x = self.head(x, idx)
+
+        if self.warp_final_head:
+            return self.warp_head(x)
+        return x
+
+    def adapt_modules(self):
+        """Iterator for task-adaptable modules"""
+        for i in range(1, self.num_layers+1):
+            conv = getattr(self, 'conv{}'.format(i))
+            yield conv
+        yield self.head
+
+    def warp_modules(self):
+        """Iterator for warp-layer modules"""
+        for i in range(1, self.num_layers+1):
+            for j in range(1, self.warp_num_layers+1):
+                warp = getattr(self, 'warp{}{}'.format(i, j))
+                yield warp
+
+        if self.warp_final_head:
+            yield self.warp_head
+
+    def init_adaptation(self):
+        """Reset stats for new task"""
+        # Reset head if multi-headed, otherwise null-op
+        self.head.reset_parameters()
+
+        # Reset BN running stats
+        for m in self.modules():
+            if hasattr(m, 'reset_running_stats'):
+                m.reset_running_stats()  
