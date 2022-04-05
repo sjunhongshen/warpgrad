@@ -26,7 +26,16 @@ def get_model(args, criterion):
                   batch_norm=args.batch_norm,
                   multi_head=args.multi_head)
     if "warp" in args.meta_model.lower():
-        model = WarpedOmniConv(warp_num_layers=args.warp_num_layers,
+        if args.meta_model.lower()[-5:] == 'fixed':
+            model = WarpedOmniConv_fixed(warp_num_layers=args.warp_num_layers,
+                               warp_num_filters=args.warp_num_filters,
+                               warp_residual_connection=args.warp_residual,
+                               warp_act_fun=args.warp_act_fun,
+                               warp_batch_norm=args.warp_batch_norm,
+                               warp_final_head=args.warp_final_head,
+                               **kwargs)
+        else:
+            model = WarpedOmniConv(warp_num_layers=args.warp_num_layers,
                                warp_num_filters=args.warp_num_filters,
                                warp_residual_connection=args.warp_residual,
                                warp_act_fun=args.warp_act_fun,
