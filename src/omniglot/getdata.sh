@@ -1,6 +1,6 @@
 set -e
 
-python getdata.py
+# python getdata.py
 
 cd ./data/omniglot-py 
 
