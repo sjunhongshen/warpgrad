@@ -32,11 +32,11 @@ parser.add_argument('--num_pretrain', type=int, default=30,
 parser.add_argument('--classes', type=int, default=20,
 					help="Number of classes in a task")
 
-parser.add_argument('--meta_batch_size', type=int, default=20,
+parser.add_argument('--meta_batch_size', type=int, default=5,
 					help="Tasks per meta-batch")
-parser.add_argument('--task_batch_size', type=int, default=128,
+parser.add_argument('--task_batch_size', type=int, default=20,
 					help="Samples per task-batch")
-parser.add_argument('--meta_train_steps', type=int, default=1000,
+parser.add_argument('--meta_train_steps', type=int, default=200,
 					help="Number of steps in the outer (meta) loop")
 parser.add_argument('--task_train_steps', type=int, default=100,
 					help="Number of steps in the inner (task) loop")
@@ -67,7 +67,7 @@ parser.add_argument('--kernel_size', type=int, default=3,
 					help='Kernel size in conv layers')
 parser.add_argument('--padding', type=int, default=1,
 					help='Padding in conv layers')
-parser.add_argument('--num_layers', type=int, default=4,
+parser.add_argument('--num_layers', type=int, default=3,
 					help='Number of convolution layers in classifier')
 parser.add_argument('--num_filters', type=int, default=64,
 					help='Number of filters in each conv layer')
