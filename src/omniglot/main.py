@@ -36,7 +36,7 @@ parser.add_argument('--meta_batch_size', type=int, default=5,
 					help="Tasks per meta-batch")
 parser.add_argument('--task_batch_size', type=int, default=20,
 					help="Samples per task-batch")
-parser.add_argument('--meta_train_steps', type=int, default=200,
+parser.add_argument('--meta_train_steps', type=int, default=300,
 					help="Number of steps in the outer (meta) loop")
 parser.add_argument('--task_train_steps', type=int, default=100,
 					help="Number of steps in the inner (task) loop")
@@ -67,7 +67,7 @@ parser.add_argument('--kernel_size', type=int, default=3,
 					help='Kernel size in conv layers')
 parser.add_argument('--padding', type=int, default=1,
 					help='Padding in conv layers')
-parser.add_argument('--num_layers', type=int, default=3,
+parser.add_argument('--num_layers', type=int, default=4,
 					help='Number of convolution layers in classifier')
 parser.add_argument('--num_filters', type=int, default=64,
 					help='Number of filters in each conv layer')
@@ -90,6 +90,8 @@ parser.add_argument('--meta_kwargs', nargs='+', default=[],
 
 parser.add_argument('--warp_num_layers', type=int, default=1,
 					help='Number of conv layers in a block of warp layers.')
+parser.add_argument('--fixed_warp_layer_sz', type=int, default=2,
+					help='Accounts for reduced number of parameters given a warp layer')
 parser.add_argument('--warp_num_filters', type=int, default=64,
 					help='Number of out filters in warp convolutions.')
 parser.add_argument('--warp_act_fun', type=str, default='None',
@@ -100,6 +102,8 @@ parser.add_argument('--warp_batch_norm', action='store_true',
 					help='Batch norm in warp-layer.')
 parser.add_argument('--warp_final_head', action='store_true',
 					help='Warp final linear layer.')
+parser.add_argument('--no_prewarp_batchnorm', action='store_true',
+					help='no prewarp layer batch norm')
 args = parser.parse_args()
 
 args.imsize = (28, 28)

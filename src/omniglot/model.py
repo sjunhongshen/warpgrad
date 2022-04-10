@@ -19,6 +19,7 @@ def get_model(args, criterion):
 	"""Construct model from main args"""
 	kwargs = dict(num_classes=args.classes,
 				  num_layers=args.num_layers,
+				  fixed_warp_layer_sz=args.fixed_warp_layer_sz,
 				  kernel_size=args.kernel_size,
 				  num_filters=args.num_filters,
 				  imsize=args.imsize,
@@ -33,6 +34,7 @@ def get_model(args, criterion):
 							   warp_act_fun=args.warp_act_fun,
 							   warp_batch_norm=args.warp_batch_norm,
 							   warp_final_head=args.warp_final_head,
+							   prewarp_batchnorm= not args.no_prewarp_batchnorm,
 							   **kwargs)
 		else:
 			model = WarpedOmniConv(warp_num_layers=args.warp_num_layers,
@@ -399,6 +401,7 @@ class WarpedOmniConv(nn.Module):
 	def __init__(self,
 				 num_classes,
 				 num_layers=4,
+				 fixed_warp_layer_sz=0,
 				 kernel_size=3,
 				 num_filters=64,
 				 imsize=(28, 28),
@@ -568,10 +571,12 @@ class WarpedOmniConv_fixed(nn.Module):
 				 batch_norm=True,
 				 multi_head=False,
 				 warp_num_layers=1,
+				 fixed_warp_layer_sz=2,
 				 warp_num_filters=64,
 				 warp_residual_connection=False,
 				 warp_act_fun=None,
 				 warp_batch_norm=True,
+				 prewarp_batchnorm=True,
 				 warp_final_head=False):
 		super(WarpedOmniConv_fixed, self).__init__()
 		self.num_layers = num_layers
@@ -580,7 +585,8 @@ class WarpedOmniConv_fixed(nn.Module):
 		self.imsize = imsize
 		self.batch_norm = batch_norm
 		self.multi_head = multi_head
-		self.warp_num_layers = warp_num_layers * (self.num_layers - 1) #ldery - retrofitted this so the number of params is the same
+		self.prewarp_batchnorm = prewarp_batchnorm
+		self.warp_num_layers = fixed_warp_layer_sz#ldery - retrofitted this so the number of params is of the same order
 		self.warp_num_filters = warp_num_filters
 		self.warp_residual_connection = warp_residual_connection
 		self.warp_act_fun = ACT_FUNS[warp_act_fun.lower()]
@@ -615,31 +621,25 @@ class WarpedOmniConv_fixed(nn.Module):
 
 			# Warp-layers
 			nin = num_filters
-			for _ in range(self.warp_num_layers):
-				self._warp_counter = \
-					self._warp_counter % self.warp_num_layers + 1
+			self._warp_counter = \
+				self._warp_counter % self.warp_num_layers + 1
 
-				if self._warp_counter == self.warp_num_layers:
-					nout = num_filters
-				else:
-					nout = self.warp_num_filters
+			if self._warp_counter == self.warp_num_layers:
+				nout = num_filters
+			else:
+				nout = self.warp_num_filters
 
+			if self.prewarp_batchnorm:
 				bn_before = nn.BatchNorm2d(nin)
-				setattr(self, 'warp{}{}_before'.format(self._conv_counter,
-												self._warp_counter),
+				setattr(self, 'warp{}{}_before'.format(self._conv_counter, 0),
 						bn_before)
 
-				setattr(self, 'warp{}{}'.format(self._conv_counter,
-												self._warp_counter),
-						self.fixed_warp)
-				
+			setattr(self, 'warp{}{}'.format(self._conv_counter,0),
+					self.fixed_warp)
+			if self.prewarp_batchnorm:
 				bn_after = nn.BatchNorm2d(nout)
-				setattr(self, 'warp{}{}_after'.format(self._conv_counter,
-												self._warp_counter),
+				setattr(self, 'warp{}{}_after'.format(self._conv_counter,0),
 						bn_after)
-				
-
-				nin = nout
 
 		# Build model
 		block(1)
@@ -660,10 +660,11 @@ class WarpedOmniConv_fixed(nn.Module):
 			# Task-adaptable layer
 			x = getattr(self, 'conv{}'.format(i))(x)
 			# Warp-layer(s)
-			for j in range(1, self._warp_counter+1):
-				x = getattr(self, 'warp{}{}_before'.format(i, j))(x)
-				x = getattr(self, 'warp{}{}'.format(i, j))(x)
-				x = getattr(self, 'warp{}{}_after'.format(i, j))(x)
+			if self.prewarp_batchnorm:
+				x = getattr(self, 'warp{}{}_before'.format(i, 0))(x)
+			x = getattr(self, 'warp{}{}'.format(i, 0))(x)
+			if self.prewarp_batchnorm:
+				x = getattr(self, 'warp{}{}_after'.format(i, 0))(x)
 
 		x = self.squeeze(x)
 		x = self.head(x, idx)
@@ -681,11 +682,11 @@ class WarpedOmniConv_fixed(nn.Module):
 
 	def warp_modules(self):
 		"""Iterator for warp-layer modules"""
-		for i in range(1, self.num_layers+1):
-			for j in range(1, self.warp_num_layers+1):
-				warp = getattr(self, 'warp{}{}_before'.format(i, j))
+		if self.prewarp_batchnorm:
+			for i in range(1, self.num_layers+1):
+				warp = getattr(self, 'warp{}{}_before'.format(i, 0))
 				yield warp
-				warp = getattr(self, 'warp{}{}_after'.format(i, j))
+				warp = getattr(self, 'warp{}{}_after'.format(i, 0))
 				yield warp
 		yield self.fixed_warp
 
