@@ -14,6 +14,7 @@ from leap.utils import clone_state_dict
 
 from utils import Res, AggRes
 
+from precond import *
 
 class BaseWrapper(object):
 
@@ -356,6 +357,71 @@ class MAMLWrapper(object):
 
 		return results
 
+class PRECONDWrapper(object):
+
+	"""Wrapper around the PRECOND meta-learner.
+
+	Arguments:
+		model (nn.Module): classifier.
+		optimizer_cls: optimizer class.
+		meta_optimizer_cls: meta optimizer class.
+		optimizer_kwargs (dict): kwargs to pass to optimizer upon construction.
+		meta_optimizer_kwargs (dict): kwargs to pass to meta optimizer upon
+			construction.
+		criterion (func): loss criterion to use.
+	"""
+
+	def __init__(self, model, optimizer_cls, meta_optimizer_cls,
+				 optimizer_kwargs, meta_optimizer_kwargs, criterion):
+		self.criterion = criterion
+		self.model = model
+		self.max_grad_norm = 1.0
+
+		self.optimizer_cls = \
+			optim.SGD if optimizer_cls.lower() == 'sgd' else optim.Adam
+
+		self.meta = PRECOND(optimizer_cls=self.optimizer_cls,
+							  criterion=criterion,
+							  model=model,
+							  tensor=False,
+							  **optimizer_kwargs)
+
+		self.meta_optimizer_cls = \
+			optim.SGD if meta_optimizer_cls.lower() == 'sgd' else optim.Adam
+
+		self.optimizer_kwargs = optimizer_kwargs
+		self.meta_optimizer = self.meta_optimizer_cls(self.meta.parameters(),
+													  **meta_optimizer_kwargs)
+
+	def __call__(self, meta_batch, meta_train):
+		tasks = []
+		for t in meta_batch:
+			t.dataset.train()
+			inner = [b for b in t]
+			t.dataset.eval()
+			outer = [b for b in t]
+			tasks.append((inner, outer))
+		return self.run_meta_batch(tasks, meta_train=meta_train)
+
+	def run_meta_batch(self, meta_batch, meta_train):
+		"""Run on meta-batch.
+
+		Arguments:
+			meta_batch (list): list of task-specific dataloaders
+			meta_train (bool): meta-train on batch.
+		"""
+		loss, results = self.meta(meta_batch,
+								  return_predictions=False,
+								  return_results=True,
+								  create_graph=meta_train)
+		if meta_train:
+			nn.utils.clip_grad_norm_(self.meta.precond_model.parameters(), self.max_grad_norm)
+			nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+			self.meta_optimizer.step()
+			self.meta_optimizer.zero_grad()
+		return results
+
+
 
 class NoWrapper(BaseWrapper):
 
@@ -435,7 +501,6 @@ class _FOWrapper(BaseWrapper):
 	def _partial_meta_update(self, loss, final):
 		if not final:
 			return
-
 		if self._updates is None:
 			self._updates = {}
 			for n, p in self._original.items():

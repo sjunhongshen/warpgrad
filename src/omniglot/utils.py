@@ -3,6 +3,7 @@
 import os
 from os.path import join
 import numpy as np
+from collections import OrderedDict
 
 
 def convert_arg(arg):
@@ -238,3 +239,93 @@ def consolidate(agg_res):
     """Merge a list of agg_res into one agg_res"""
     results = [sum((r.train_res, r.val_res), ()) for r in agg_res]
     return AggRes(results)
+
+
+def build_dict(names, parameters):
+    """Populate an ordered dictionary of parameters"""
+    state_dict = OrderedDict({n: p for n, p in zip(names, parameters)})
+    return state_dict
+
+def load_state_dict(module, state_dict):
+    r"""Replaces parameters and buffers from :attr:`state_dict` into
+    the given module and its descendants. In contrast to the module's
+    method, this function will *not* do in-place copy of underlying data on
+    *parameters*, but instead replace the ``_parameter`` dict in each
+    module and its descendants. This allows us to backpropr through previous
+    gradient steps using the standard top-level API.
+
+    .. note::
+        You must store the original state dict (with keep_vars=True) separately
+        and, when ready to update them, use :funct:`load_state_dict` to return
+        as the module's parameters.
+
+    Arguments:
+        module (torch.nn.Module): a module instance whose state to update.
+        state_dict (dict): a dict containing parameters and
+            persistent buffers.
+    """
+    par_names = [n for n, _ in module.named_parameters()]
+
+    par_dict = OrderedDict({k: v for k, v in state_dict.items() if k in par_names})
+    no_par_dict = OrderedDict({k: v for k, v in state_dict.items() if k not in par_names})
+    excess = [k for k in state_dict.keys()
+              if k not in list(no_par_dict.keys()) + list(par_dict.keys())]
+
+    if excess:
+        raise ValueError(
+            "State variables %r not in the module's state dict %r" % (excess, par_names))
+
+    metadata = getattr(state_dict, '_metadata', None)
+    if metadata is not None:
+        par_dict._metadata = metadata
+        no_par_dict._metadata = metadata
+
+    module.load_state_dict(no_par_dict, strict=False)
+
+    def load(module, prefix=''): # pylint: disable=missing-docstring
+        _load_from_par_dict(module, par_dict, prefix)
+        for name, child in module._modules.items():
+            if child is not None:
+                load(child, prefix + name + '.')
+
+    load(module)
+
+def build_iterator(tensors, inner_bsz, outer_bsz, inner_steps, outer_steps, cuda=False, device=0):
+    """Construct a task iterator from input and output tensor"""
+    inner_size = inner_bsz * inner_steps
+    outer_size = outer_bsz * outer_steps
+    tsz = tensors[0].size(0)
+    if tsz != inner_size + outer_size:
+        raise ValueError(
+            'tensor size mismatch: expected {}, got {}'.format(
+                inner_size + outer_size, tsz))
+
+    def iterator(start, stop, size):  #pylint: disable=missing-docstring
+        for i in range(start, stop, size):
+            out = tuple(t[i:i+size] for t in tensors)
+            if cuda:
+                out = tuple(t.cuda(device) for t in out)
+            yield out
+
+    return iterator(0, inner_size, inner_bsz), iterator(inner_size, tsz, outer_bsz)
+
+
+def _load_from_par_dict(module, par_dict, prefix):
+    """Replace the module's _parameter dict with par_dict"""
+    _new_parameters = OrderedDict()
+    for name, param in module._parameters.items():
+        key = prefix + name
+        if key in par_dict:
+            input_param = par_dict[key]
+        else:
+            input_param = param
+
+        if input_param.shape != param.shape:
+            # local shape should match the one in checkpoint
+            raise ValueError(
+                'size mismatch for {}: copying a param of {} from checkpoint, '
+                'where the shape is {} in current model.'.format(
+                    key, param.shape, input_param.shape))
+
+        _new_parameters[name] = input_param
+    module._parameters = _new_parameters

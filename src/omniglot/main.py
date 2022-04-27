@@ -76,7 +76,7 @@ parser.add_argument('--no_batch_norm', action='store_true',
 
 parser.add_argument('--meta_model', type=str, default='warp_leap',
 					help='Meta-learner [warp_leap, warp_leap_fixed, leap, reptile,'
-						 'maml, fomaml, ft, no]')
+						 'maml, fomaml, ft, no, precond]')
 parser.add_argument('--inner_opt', type=str, default='sgd',
 					help='Optimizer in inner (task) loop: SGD or Adam')
 parser.add_argument('--outer_opt', type=str, default='sgd',
@@ -199,14 +199,16 @@ def main():
 		evaluate(model, 'test', 0)
 		return
 
+	print('Getting the model here')
 	model = get_model(args, criterion)
-	total_warp = sum([p.numel() for x in model.model.warp_modules for p in x.parameters()])
-	total_adapt = sum([p.numel() for x in model.model.adapt_modules for p in x.parameters()])
-	pp(
-		"Total Params = {:.3f} M".format((total_warp + total_adapt)/1e6), 
-		"Total Warp = {:.3f}M".format(total_warp/1e6), 
-		"Total Adapt = {:.3f}M".format(total_adapt/1e6)
-	)
+	if hasattr(model.model, 'warp_modules'):
+		total_warp = sum([p.numel() for x in model.model.warp_modules for p in x.parameters()])
+		total_adapt = sum([p.numel() for x in model.model.adapt_modules for p in x.parameters()])
+		pp(
+			"Total Params = {:.3f} M".format((total_warp + total_adapt)/1e6), 
+			"Total Warp = {:.3f}M".format(total_warp/1e6), 
+			"Total Adapt = {:.3f}M".format(total_adapt/1e6)
+		)
 	###########################################################################
 	if args.write_ival > 0:
 		if os.path.exists(log_dir):

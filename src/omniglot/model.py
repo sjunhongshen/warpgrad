@@ -1,9 +1,10 @@
 """Base Omniglot models. Based on original implementation:
 https://github.com/amzn/metalearn-leap
 """
+import pdb
 import torch.nn as nn
 from wrapper import (WarpGradWrapper, LeapWrapper, MAMLWrapper, NoWrapper,
-					  FtWrapper, FOMAMLWrapper, ReptileWrapper)
+					  FtWrapper, FOMAMLWrapper, ReptileWrapper, PRECONDWrapper)
 
 NUM_CLASSES = 50
 ACT_FUNS = {
@@ -53,6 +54,7 @@ def get_model(args, criterion):
 	if args.log_ival > 0:
 		print(model)
 
+	print('Doing the wrapping')
 	if "warp" in args.meta_model.lower():
 		return WarpGradWrapper(
 			model,
@@ -112,6 +114,16 @@ def get_model(args, criterion):
 
 	if args.meta_model.lower() == 'maml':
 		return MAMLWrapper(
+			model,
+			args.inner_opt,
+			args.outer_opt,
+			args.inner_kwargs,
+			args.outer_kwargs,
+			criterion,
+		)
+	
+	if args.meta_model.lower() == 'precond':
+		return PRECONDWrapper(
 			model,
 			args.inner_opt,
 			args.outer_opt,
@@ -228,7 +240,7 @@ class OmniConv(nn.Module):
 	"""
 
 	def __init__(self, num_classes, num_layers=4, kernel_size=3,
-				 num_filters=64, imsize=(28, 28), padding=True,
+				 num_filters=64, imsize=(28, 28), padding=True, fixed_warp_layer_sz=None,
 				 batch_norm=True, multi_head=False):
 		super(OmniConv, self).__init__()
 		self.num_layers = num_layers
@@ -356,11 +368,15 @@ class BIGWarpLayer(nn.Module):
 				 kernel_size, padding, residual_connection,
 				 batch_norm, act_fun, nrepeat_block):
 		super(BIGWarpLayer, self).__init__()
-		blocks = [ WarpLayer(num_features_in, num_features_out, 
+		blocks = []
+		for _ in range(nrepeat_block):
+			warp = WarpLayer(num_features_in, num_features_out, 
 							 kernel_size, padding, residual_connection,
 							 batch_norm, act_fun)
-						for _ in range(nrepeat_block)
-				]
+			blocks.append(warp)
+			blocks.append(nn.ReLU())
+
+		blocks = blocks[:-1]
 		self.model = nn.Sequential(*blocks)
 
 	def forward(self, x):
@@ -529,7 +545,7 @@ class WarpedOmniConv(nn.Module):
 			if hasattr(m, 'reset_running_stats'):
 				m.reset_running_stats()
 
-import pdb
+
 class WarpedOmniConv_fixed(nn.Module):
 
 	"""ConvNet classifier.
