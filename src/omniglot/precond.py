@@ -16,7 +16,7 @@
 import torch.nn as nn
 import torch
 import numpy as np
-from mem_cnn import InvertibleModel
+from mem_cnn import ConvInvertibleModel, LinearInvertibleModel
 from utils import build_dict, load_state_dict, build_iterator, Res, AggRes
 import pdb
 
@@ -89,7 +89,7 @@ def run_dev(data_outer, device, criterion, model):
 	return loss, val_res, predictions
 
 
-def precond_task(data_inner, data_outer, model, optimizer, criterion, precond_model, param_grads):
+def precond_task(data_inner, data_outer, model, optimizer, criterion, precond_model, param_grads, precond_optimizer, meta_train=True):
 	"""Adapt model parameters to task and use adapted params to predict new samples
 
 	Arguments:
@@ -116,10 +116,15 @@ def precond_task(data_inner, data_outer, model, optimizer, criterion, precond_mo
 		loss, prediction, precond_model_preds, fo_gradients = precond_inner_step(input, output, model, optimizer, criterion, precond_model, is_last=((i + 1) == Nb))
 		train_res.log(loss.item(), prediction, output)
 
-		# Now do gradient descent for the pre-conditioner model
-		pred_loss = criterion(model(input), output)
-		dev_grads, _ = get_grads(pred_loss, model, vector=True)
-		precond_model_preds.backward(dev_grads)
+		if meta_train:
+			# Now do gradient descent for the pre-conditioner model
+			pred_loss, _, _ = run_dev(data_outer, device, criterion, model)
+			dev_grads, _ = get_grads(pred_loss, model, vector=True)
+			precond_model_preds.backward(dev_grads)
+			nn.utils.clip_grad_norm_(precond_model.parameters(), 0.01)
+			# Do a gradient descent on precond here
+			precond_optimizer.step()
+			precond_optimizer.zero_grad()
 
 		for p in model.parameters():
 			p.grad = None
@@ -156,8 +161,8 @@ def normalize_grads(model, normalizer):
 				p.grad.div_(normalizer)
 
 
-def precond_outer_step(task_iterator, model, optimizer_cls, criterion, precond_model, return_predictions=True,
-					return_results=True, **optimizer_kwargs):
+def precond_outer_step(task_iterator, model, optimizer_cls, criterion, precond_model, precond_optimizer, return_predictions=True,
+					return_results=True, meta_train=True, **optimizer_kwargs):
 	loss = 0
 	predictions, results = [], []
 	param_grads = [torch.zeros_like(p) for p in model.parameters()]
@@ -167,7 +172,7 @@ def precond_outer_step(task_iterator, model, optimizer_cls, criterion, precond_m
 		task_optimizer = optimizer_cls(model.parameters(), **optimizer_kwargs)
 
 		task_loss, task_predictions, task_res = precond_task(
-			inner_iterator, outer_iterator, model, task_optimizer, criterion, precond_model, param_grads)
+			inner_iterator, outer_iterator, model, task_optimizer, criterion, precond_model, param_grads, precond_optimizer, meta_train=meta_train)
 
 		loss += task_loss.item()
 
@@ -223,8 +228,11 @@ class PRECOND(nn.Module):
 		self.optimizer_kwargs = optimizer_kwargs
 		self.criterion = criterion
 		modelnumel = sum([p.numel() for p in model.parameters()])
-		self.precond_model = InvertibleModel(innerlayers=2, outerlayers=2, nchannels=4, nmodelparams=modelnumel)
+		self.precond_model = LinearInvertibleModel([128, 1024], 2, modelnumel)
 		self.precond_model.to(next(model.parameters()).device)
+		self.precond_optimizer = None
+		precondnumel = sum([p.numel() for p in self.precond_model.parameters()])
+		print(precondnumel, modelnumel, precondnumel//modelnumel)
 		print(self.precond_model)
 
 
@@ -240,7 +248,7 @@ class PRECOND(nn.Module):
 			assert inner_steps is not None, 'set inner_steps with tensor=True'
 			assert outer_steps is not None, 'set outer_steps with tensor=True'
 
-	def forward(self, inputs, return_predictions=True, return_results=True, create_graph=False):
+	def forward(self, inputs, return_predictions=True, return_results=True, meta_train=False):
 		task_iterator = inputs if not self.tensor else [
 			build_iterator(i, self.inner_bsz, self.outer_bsz, self.inner_steps, self.outer_steps)
 			for i in inputs]
@@ -250,6 +258,8 @@ class PRECOND(nn.Module):
 			optimizer_cls=self.optimizer_cls,
 			criterion=self.criterion,
 			precond_model=self.precond_model,
+			precond_optimizer=self.precond_optimizer,
+			meta_train=meta_train,
 			return_predictions=return_predictions,
 			return_results=return_results,
 			**self.optimizer_kwargs)

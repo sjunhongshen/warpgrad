@@ -385,12 +385,15 @@ class PRECONDWrapper(object):
 							  model=model,
 							  tensor=False,
 							  **optimizer_kwargs)
-
 		self.meta_optimizer_cls = \
 			optim.SGD if meta_optimizer_cls.lower() == 'sgd' else optim.Adam
 
+		precond_optimizer = self.meta_optimizer_cls(self.meta.precond_model.parameters(),
+													  **meta_optimizer_kwargs)
+		self.meta.precond_optimizer = precond_optimizer
+
 		self.optimizer_kwargs = optimizer_kwargs
-		self.meta_optimizer = self.meta_optimizer_cls(self.meta.parameters(),
+		self.meta_optimizer = self.meta_optimizer_cls(self.meta.model.parameters(),
 													  **meta_optimizer_kwargs)
 
 	def __call__(self, meta_batch, meta_train):
@@ -413,9 +416,8 @@ class PRECONDWrapper(object):
 		loss, results = self.meta(meta_batch,
 								  return_predictions=False,
 								  return_results=True,
-								  create_graph=meta_train)
+								  meta_train=meta_train)
 		if meta_train:
-			nn.utils.clip_grad_norm_(self.meta.precond_model.parameters(), self.max_grad_norm)
 			nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
 			self.meta_optimizer.step()
 			self.meta_optimizer.zero_grad()
