@@ -63,7 +63,6 @@ def precond_inner_step(input, output, model, optimizer, criterion, precond_model
 	new_grads = precond_model(grad_vector)
 	set_new_grads(model, new_grads, shapes_)
 
-# 	loss.backward()
 	optimizer.step()
 	
 	return loss, prediction, new_grads, fo_gradients
@@ -116,15 +115,22 @@ def precond_task(data_inner, data_outer, model, optimizer, criterion, precond_mo
 		loss, prediction, precond_model_preds, fo_gradients = precond_inner_step(input, output, model, optimizer, criterion, precond_model, is_last=((i + 1) == Nb))
 		train_res.log(loss.item(), prediction, output)
 
-		if meta_train:
+		if meta_train and i < (Nb - 1):
 			# Now do gradient descent for the pre-conditioner model
-			pred_loss, _, _ = run_dev(data_outer, device, criterion, model)
+# 			pred_loss, _, _ = run_dev(data_outer, device, criterion, model)
+
+			in_, out_ = data_inner[i + 1]
+			in_  = in_.to(device, non_blocking=True)
+			out_ = out_.to(device, non_blocking=True)
+			pred_loss = criterion(model(in_), out_)
+
 			dev_grads, _ = get_grads(pred_loss, model, vector=True)
 			precond_model_preds.backward(dev_grads)
-			nn.utils.clip_grad_norm_(precond_model.parameters(), 0.01)
+			nn.utils.clip_grad_norm_(precond_model.parameters(), 1.0)
 			# Do a gradient descent on precond here
 			precond_optimizer.step()
 			precond_optimizer.zero_grad()
+			precond_model.update_rate_counter()
 
 		for p in model.parameters():
 			p.grad = None
@@ -219,7 +225,7 @@ class PRECOND(nn.Module):
 
 	def __init__(self, model, optimizer_cls, criterion, tensor,
 				 inner_bsz=None, outer_bsz=None, inner_steps=None,
-				 outer_steps=None, **optimizer_kwargs):
+				 outer_steps=None,  precond_type='Linear', **optimizer_kwargs):
 		super(PRECOND, self).__init__()
 
 		self.model = model
@@ -228,7 +234,12 @@ class PRECOND(nn.Module):
 		self.optimizer_kwargs = optimizer_kwargs
 		self.criterion = criterion
 		modelnumel = sum([p.numel() for p in model.parameters()])
-		self.precond_model = LinearInvertibleModel([128, 1024], 2, modelnumel)
+		
+		if precond_type == 'Linear':
+			self.precond_model = LinearInvertibleModel([128, 1024], 2, modelnumel)
+		else:
+			self.precond_model = ConvInvertibleModel(2, 2, 4, modelnumel)
+
 		self.precond_model.to(next(model.parameters()).device)
 		self.precond_optimizer = None
 		precondnumel = sum([p.numel() for p in self.precond_model.parameters()])

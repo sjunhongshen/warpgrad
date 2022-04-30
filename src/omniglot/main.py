@@ -77,6 +77,8 @@ parser.add_argument('--no_batch_norm', action='store_true',
 parser.add_argument('--meta_model', type=str, default='warp_leap',
 					help='Meta-learner [warp_leap, warp_leap_fixed, leap, reptile,'
 						 'maml, fomaml, ft, no, precond]')
+parser.add_argument('--precond_type', type=str, default='Linear',
+					help='Type of preconditioner to learn [Linear, Conv]')
 parser.add_argument('--inner_opt', type=str, default='sgd',
 					help='Optimizer in inner (task) loop: SGD or Adam')
 parser.add_argument('--outer_opt', type=str, default='sgd',
