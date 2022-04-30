@@ -97,7 +97,7 @@ class ConvInvertibleModel(nn.Module):
 # 		self.ln = nn.LayerNorm([nmodelparams])
 # 		make_bias_unlearnable(self.ln)
 
-		self.max_updates = 100000.0
+		self.max_updates = 200000.0
 		self.update_counter = 0
 	
 	def update_rate_counter(self):

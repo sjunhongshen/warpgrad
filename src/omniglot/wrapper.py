@@ -419,7 +419,7 @@ class PRECONDWrapper(object):
 								  return_results=True,
 								  meta_train=meta_train)
 		if meta_train:
-			nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+# 			nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
 			self.meta_optimizer.step()
 			self.meta_optimizer.zero_grad()
 		return results

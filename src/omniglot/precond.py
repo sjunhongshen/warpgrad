@@ -125,8 +125,9 @@ def precond_task(data_inner, data_outer, model, optimizer, criterion, precond_mo
 			pred_loss = criterion(model(in_), out_)
 
 			dev_grads, _ = get_grads(pred_loss, model, vector=True)
+			precond_model_preds = (-precond_model_preds)
 			precond_model_preds.backward(dev_grads)
-			nn.utils.clip_grad_norm_(precond_model.parameters(), 1.0)
+# 			nn.utils.clip_grad_norm_(precond_model.parameters(), 10.0)
 			# Do a gradient descent on precond here
 			precond_optimizer.step()
 			precond_optimizer.zero_grad()
