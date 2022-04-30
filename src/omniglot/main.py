@@ -87,6 +87,8 @@ parser.add_argument('--inner_kwargs', nargs='+', default=['lr', '0.1'],
 					help='Kwargs for inner optimizer')
 parser.add_argument('--outer_kwargs', nargs='+', default=['lr', '0.1'],
 					help='Kwargs for outer optimizer')
+parser.add_argument('--precond_kwargs', nargs='+', default=['lr', '0.1'],
+					help='Kwargs for outer optimizer')
 parser.add_argument('--meta_kwargs', nargs='+', default=[],
 					help='Kwargs for meta learner')
 
@@ -115,6 +117,7 @@ args.batch_norm = not args.no_batch_norm
 args.inner_kwargs = build_kwargs(args.inner_kwargs)
 args.outer_kwargs = build_kwargs(args.outer_kwargs)
 args.meta_kwargs = build_kwargs(args.meta_kwargs)
+args.precond_kwargs = build_kwargs(args.precond_kwargs)
 args.multi_head = args.meta_model.lower() == 'ft'
 
 

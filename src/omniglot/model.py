@@ -130,6 +130,7 @@ def get_model(args, criterion):
 			args.inner_kwargs,
 			args.outer_kwargs,
 			criterion,
+			args.precond_kwargs,
 			precond_type=args.precond_type
 		)
 	raise NotImplementedError('Meta-learner {} unknown.'.format(

@@ -372,7 +372,7 @@ class PRECONDWrapper(object):
 	"""
 
 	def __init__(self, model, optimizer_cls, meta_optimizer_cls,
-				 optimizer_kwargs, meta_optimizer_kwargs, criterion,  precond_type='Linear'):
+				 optimizer_kwargs, meta_optimizer_kwargs, criterion,  precond_kwargs, precond_type='Linear'):
 		self.criterion = criterion
 		self.model = model
 		self.max_grad_norm = 1.0
@@ -390,7 +390,7 @@ class PRECONDWrapper(object):
 			optim.SGD if meta_optimizer_cls.lower() == 'sgd' else optim.Adam
 
 		precond_optimizer = self.meta_optimizer_cls(self.meta.precond_model.parameters(),
-													  **meta_optimizer_kwargs)
+													  **precond_kwargs)
 		self.meta.precond_optimizer = precond_optimizer
 
 		self.optimizer_kwargs = optimizer_kwargs

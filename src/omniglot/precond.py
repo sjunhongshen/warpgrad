@@ -20,6 +20,15 @@ from mem_cnn import ConvInvertibleModel, LinearInvertibleModel
 from utils import build_dict, load_state_dict, build_iterator, Res, AggRes
 import pdb
 
+# Calculates the norm of a list of vectors
+def calc_norm(grads):
+	norm = 0.0
+	for g_ in grads:
+		if g_ is not None:
+			norm += (g_**2).sum()
+	return np.sqrt(norm.item())
+
+
 def get_grads(loss, model, vector=False):
 	with torch.no_grad():
 		grads = torch.autograd.grad(loss, model.parameters(), allow_unused=True)
@@ -125,10 +134,17 @@ def precond_task(data_inner, data_outer, model, optimizer, criterion, precond_mo
 			pred_loss = criterion(model(in_), out_)
 
 			dev_grads, _ = get_grads(pred_loss, model, vector=True)
-			precond_model_preds = (-precond_model_preds)
+			inverse_rate = 1.0/(precond_model.get_update_rate() + 1e-6) # Added to undo the "initial close to identity weighting"
+			precond_model_preds = (-precond_model_preds * inverse_rate)
 			precond_model_preds.backward(dev_grads)
 # 			nn.utils.clip_grad_norm_(precond_model.parameters(), 10.0)
 			# Do a gradient descent on precond here
+# 			if i == (Nb - 2):
+# 				with torch.no_grad():
+# 					norm_ = sum([(x.grad**2).sum() for x in precond_model.parameters()]).item()
+# 					norm_ = np.sqrt(norm_)
+# 				pdb.set_trace()
+# 				print('This is the grad norm : ', norm_)
 			precond_optimizer.step()
 			precond_optimizer.zero_grad()
 			precond_model.update_rate_counter()
